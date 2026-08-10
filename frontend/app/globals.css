@@ -1,0 +1,119 @@
+@import "tailwindcss";
+@import "@fontsource-variable/fraunces";
+@import "@fontsource/manrope/400.css";
+@import "@fontsource/manrope/500.css";
+@import "@fontsource/manrope/600.css";
+@import "@fontsource/manrope/700.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+
+:root {
+  /* The Forge — ink & molten amber */
+  --ink-950: #0d0b08;
+  --ink-900: #14110c;
+  --ink-800: #1c1712;
+  --ink-700: #26201a;
+  --ink-600: #362e25;
+  --ink-500: #4a3f32;
+
+  --ember-400: #f2a93c;
+  --ember-500: #e8963c;
+  --ember-600: #c6721f;
+  --ember-glow: #ffb95c;
+
+  --parchment-100: #f6f0e4;
+  --parchment-300: #d9cdb8;
+  --parchment-500: #a69c8b;
+  --parchment-700: #756a5a;
+
+  --ok-500: #6fae7a;
+  --err-500: #d9683c;
+
+  --background: var(--ink-950);
+  --foreground: var(--parchment-100);
+
+  --font-display: "Fraunces Variable", ui-serif, Georgia, serif;
+  --font-body: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, monospace;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-ink-950: var(--ink-950);
+  --color-ink-900: var(--ink-900);
+  --color-ink-800: var(--ink-800);
+  --color-ink-700: var(--ink-700);
+  --color-ink-600: var(--ink-600);
+  --color-ink-500: var(--ink-500);
+  --color-ember-400: var(--ember-400);
+  --color-ember-500: var(--ember-500);
+  --color-ember-600: var(--ember-600);
+  --color-ember-glow: var(--ember-glow);
+  --color-parchment-100: var(--parchment-100);
+  --color-parchment-300: var(--parchment-300);
+  --color-parchment-500: var(--parchment-500);
+  --color-parchment-700: var(--parchment-700);
+  --color-ok-500: var(--ok-500);
+  --color-err-500: var(--err-500);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-data);
+  --font-display: var(--font-display);
+}
+
+* {
+  border-color: var(--ink-600);
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body);
+}
+
+::selection {
+  background: var(--ember-500);
+  color: var(--ink-950);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ember-400);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-data {
+  font-family: var(--font-data);
+}
+
+.bg-forge-grain {
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(232, 150, 60, 0.12), transparent),
+    radial-gradient(circle at 100% 100%, rgba(232, 150, 60, 0.06), transparent 60%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@keyframes ember-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.animate-ember-pulse {
+  animation: ember-pulse 2.4s ease-in-out infinite;
+}
