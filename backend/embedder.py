@@ -1,9 +1,9 @@
 from sentence_transformers import SentenceTransformer
 
 model = SentenceTransformer(
-    "BAAI/bge-small-en-v1.5"
+    "BAAI/bge-m3"
 )
 
 def create_embeddings(chunks):
-    embeddings = model.encode(chunks)
+    embeddings = model.encode(chunks, normalize_embeddings=True)
     return embeddings

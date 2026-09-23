@@ -1,0 +1,69 @@
+# Secrets & environment
+.env
+.env.*
+!.env.example
+
+# Local databases & artifacts
+backend/chroma_db_backup_*/
+backend/chroma_db_corrupt_*/
+backend/uploads/
+backend/test_*.pdf
+backend/debug_*.py
+backend/test_inprocess_*.py
+backend/test_search_direct.py
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+.next/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Test artifacts
+*.coverage
+htmlcov/
+
+# Debug scripts (not required at runtime)
+backend/verify_startup.py
+backend/check_chroma.py
+backend/reconcile_*.py
+backend/analyze_report.py
+backend/canonical_manifest.py
+backend/final_verify.py
+backend/generate_manifest.py
+backend/ncert_audit.py
+backend/ocr_validation.py
+backend/verify_audit.py
+backend/verify_chroma.py
+backend/verify_final.py
+backend/verify_ingestion.py
+backend/m97_ingest.py
+backend/ingest_pilot.py
+
+# Source PDFs (not required at runtime - pre-seeded Chroma is used)
+backend/NCERT/
+
+# Docker/Build artifacts
+Dockerfile*
+docker-compose*.yml
+*.dockerfile
+
+# Railway
+.railwayignore

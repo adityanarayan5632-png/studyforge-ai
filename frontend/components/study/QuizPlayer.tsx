@@ -1,11 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Card, Badge } from "@/components/ui/Primitives";
 import { Button } from "@/components/ui/Button";
 import type { QuizQuestion } from "@/lib/types";
 
-export function QuizPlayer({ questions }: { questions: QuizQuestion[] }) {
+export function QuizPlayer({ 
+  questions, 
+  onComplete 
+}: { 
+  questions: QuizQuestion[];
+  onComplete?: (score: number, total: number, percentage: number) => void;
+}) {
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
@@ -17,14 +23,25 @@ export function QuizPlayer({ questions }: { questions: QuizQuestion[] }) {
     [questions, selected]
   );
   const answeredCount = Object.keys(revealed).length;
-
-  if (!question) return null;
+  const allAnswered = answeredCount === questions.length && questions.length > 0;
 
   const pick = (label: string) => {
     if (revealed[question.id]) return;
     setSelected((prev) => ({ ...prev, [question.id]: label }));
     setRevealed((prev) => ({ ...prev, [question.id]: true }));
   };
+
+  // Trigger onComplete when all questions are answered
+  useEffect(() => {
+    if (allAnswered && onComplete && questions.length > 0) {
+      const finalScore = score;
+      const total = questions.length;
+      const percentage = Math.round((score / questions.length) * 100);
+      onComplete(finalScore, total, percentage);
+    }
+  }, [allAnswered, onComplete, questions, score]);
+
+  if (questions.length === 0 || !questions[current]) return null;
 
   return (
     <Card className="p-6">

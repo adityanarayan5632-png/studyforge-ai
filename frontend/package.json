@@ -12,6 +12,7 @@
     "@fontsource-variable/fraunces": "^5.1.1",
     "@fontsource/jetbrains-mono": "^5.1.1",
     "@fontsource/manrope": "^5.1.1",
+    "@supabase/supabase-js": "^2.112.3",
     "axios": "^1.17.0",
     "next": "16.2.9",
     "react": "19.2.4",
