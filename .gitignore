@@ -29,3 +29,15 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Test artifacts
+backend/test_*.pdf
+
+# Debug / temporary scripts (not tracked tests)
+backend/debug_*.py
+backend/test_inprocess_*.py
+backend/test_search_direct.py
+
+# ChromaDB backup / corrupt snapshots
+backend/chroma_db_backup_*/
+backend/chroma_db_corrupt_*/

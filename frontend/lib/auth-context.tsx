@@ -1,14 +1,5 @@
 "use client";
 
-/**
- * IMPORTANT: the FastAPI backend has no auth endpoints at all.
- * This is a real, but entirely client-side, account system backed by
- * localStorage. It exists so the redesigned dashboard has something to
- * guard behind. Every read/write to the account store goes through this
- * one file / the useAuth() hook, so swapping in real backend auth later
- * means changing this file only, not every page that calls useAuth().
- */
-
 import {
   createContext,
   useCallback,
@@ -17,113 +8,210 @@ import {
   useMemo,
   useState,
 } from "react";
-import type { PlanTier, StoredUser } from "./types";
-
-const USERS_KEY = "studyforge:users";
-const SESSION_KEY = "studyforge:session";
-
-interface StoredUserRecord extends StoredUser {
-  password: string;
-}
+import { supabase } from "@/lib/supabase";
+import type { PlanTier, StoredUser, StudentProfile } from "./types";
 
 interface AuthContextValue {
   user: StoredUser | null;
+  profile: StudentProfile | null;
   isLoading: boolean;
+  isProfileLoading: boolean;
   signup: (name: string, email: string, password: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  loginWithGoogle: () => Promise<void>;
+  logout: () => Promise<void>;
   setPlan: (plan: PlanTier) => void;
+  completeOnboarding: (profile: Omit<StudentProfile, "id" | "created_at" | "updated_at">) => Promise<void>;
+  refreshProfile: () => Promise<void>;
+  getAccessToken: () => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-function readUsers(): StoredUserRecord[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(USERS_KEY);
-    return raw ? (JSON.parse(raw) as StoredUserRecord[]) : [];
-  } catch {
-    return [];
+function mapSupabaseUser(user: { id: string; email?: string; user_metadata: Record<string, unknown> }): StoredUser {
+  const email = user.email || "";
+  return {
+    id: user.id,
+    name: (user.user_metadata?.full_name as string) || email.split("@")[0],
+    email,
+    plan: "scholar",
+    createdAt: Date.now(),
+  };
+}
+
+async function fetchProfileFromSupabase(sessionUserId: string): Promise<StudentProfile | null> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", sessionUserId)
+    .single();
+
+  if (error && error.code !== "PGRST116") {
+    throw error;
   }
-}
-
-function writeUsers(users: StoredUserRecord[]) {
-  window.localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-
-function toPublicUser(record: StoredUserRecord): StoredUser {
-  const { password: _password, ...publicUser } = record;
-  void _password;
-  return publicUser;
+  return data || null;
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<StoredUser | null>(null);
+  const [profile, setProfile] = useState<StudentProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
 
   useEffect(() => {
-    try {
-      const sessionId = window.localStorage.getItem(SESSION_KEY);
-      if (sessionId) {
-        const match = readUsers().find((u) => u.id === sessionId);
-        if (match) setUser(toPublicUser(match));
+    let mounted = true;
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (mounted && session?.user) {
+        setUser(mapSupabaseUser(session.user));
       }
-    } finally {
-      setIsLoading(false);
-    }
+      if (mounted) setIsLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (mounted && session?.user) {
+        setUser(mapSupabaseUser(session.user));
+      } else if (mounted && !session) {
+        setUser(null);
+        setProfile(null);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
-  const signup = useCallback(async (name: string, email: string, password: string) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    const users = readUsers();
-    if (users.some((u) => u.email === normalizedEmail)) {
-      throw new Error("An account with that email already exists.");
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadProfile() {
+      if (!user) {
+        setProfile(null);
+        return;
+      }
+
+      setIsProfileLoading(true);
+      try {
+        const data = await fetchProfileFromSupabase(user.id);
+        if (mounted) setProfile(data);
+      } catch (error) {
+        console.error("Failed to fetch profile:", error);
+        if (mounted) setProfile(null);
+      } finally {
+        if (mounted) setIsProfileLoading(false);
+      }
     }
-    const record: StoredUserRecord = {
-      id: crypto.randomUUID(),
-      name: name.trim(),
-      email: normalizedEmail,
-      password,
-      plan: "scholar",
-      createdAt: Date.now(),
+
+    loadProfile();
+
+    return () => {
+      mounted = false;
     };
-    writeUsers([...users, record]);
-    window.localStorage.setItem(SESSION_KEY, record.id);
-    setUser(toPublicUser(record));
+  }, [user]);
+
+  const signup = useCallback(async (name: string, email: string, password: string) => {
+    const { error } = await supabase.auth.signUp({
+      email: email.trim().toLowerCase(),
+      password,
+      options: {
+        data: {
+          full_name: name.trim(),
+        },
+      },
+    });
+    if (error) throw new Error(error.message);
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    const users = readUsers();
-    const match = users.find(
-      (u) => u.email === normalizedEmail && u.password === password
-    );
-    if (!match) {
-      throw new Error("Invalid email or password.");
-    }
-    window.localStorage.setItem(SESSION_KEY, match.id);
-    setUser(toPublicUser(match));
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    });
+    if (error) throw new Error(error.message);
   }, []);
 
-  const logout = useCallback(() => {
-    window.localStorage.removeItem(SESSION_KEY);
-    setUser(null);
+  const logout = useCallback(async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw new Error(error.message);
+  }, []);
+
+  const loginWithGoogle = useCallback(async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+    if (error) throw new Error(error.message);
   }, []);
 
   const setPlan = useCallback(
     (plan: PlanTier) => {
       if (!user) return;
-      const users = readUsers();
-      const updated = users.map((u) => (u.id === user.id ? { ...u, plan } : u));
-      writeUsers(updated);
       setUser({ ...user, plan });
     },
     [user]
   );
 
+  const completeOnboarding = useCallback(async (profileData: Omit<StudentProfile, "id" | "created_at" | "updated_at">) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) throw new Error("Not authenticated");
+
+    const { error } = await supabase
+      .from("profiles")
+      .insert({
+        id: session.user.id,
+        ...profileData,
+      });
+
+    if (error) throw new Error(error.message);
+
+    const newProfile: StudentProfile = {
+      id: session.user.id,
+      ...profileData,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    setProfile(newProfile);
+  }, []);
+
+  const refreshProfile = useCallback(async () => {
+    if (!user) return;
+    setIsProfileLoading(true);
+    try {
+      const data = await fetchProfileFromSupabase(user.id);
+      setProfile(data);
+    } catch (error) {
+      console.error("Failed to refresh profile:", error);
+      setProfile(null);
+    } finally {
+      setIsProfileLoading(false);
+    }
+  }, [user]);
+
+  const getAccessToken = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token ?? null;
+  }, []);
+
   const value = useMemo(
-    () => ({ user, isLoading, signup, login, logout, setPlan }),
-    [user, isLoading, signup, login, logout, setPlan]
+    () => ({
+      user,
+      profile,
+      isLoading,
+      isProfileLoading,
+      signup,
+      login,
+      loginWithGoogle,
+      logout,
+      setPlan,
+      completeOnboarding,
+      refreshProfile,
+      getAccessToken,
+    }),
+    [user, profile, isLoading, isProfileLoading, signup, login, loginWithGoogle, logout, setPlan, completeOnboarding, refreshProfile, getAccessToken]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

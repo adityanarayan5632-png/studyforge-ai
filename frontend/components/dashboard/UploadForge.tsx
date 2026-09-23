@@ -1,12 +1,13 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, Badge, Input } from "@/components/ui/Primitives";
 import { Button } from "@/components/ui/Button";
-import { uploadFile, uploadYoutubeLink } from "@/lib/api";
+import { uploadFile, uploadYoutubeLink, deleteSource } from "@/lib/api";
 import { useStudy } from "@/lib/study-context";
+import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ui/Toast";
-import type { SourceKind } from "@/lib/types";
+import type { SourceKind, SourceDocument, CurriculumSource } from "@/lib/types";
 
 const SOURCE_TABS: { id: SourceKind; label: string; accept?: string; hint: string }[] = [
   { id: "pdf", label: "PDF", accept: "application/pdf", hint: "PDF documents" },
@@ -31,6 +32,25 @@ const SOURCE_TABS: { id: SourceKind; label: string; accept?: string; hint: strin
   { id: "youtube", label: "YouTube link", hint: "Captions used if available, otherwise transcribed" },
 ];
 
+function buildCurriculumHierarchy(sources: CurriculumSource[]) {
+  const hierarchy: Record<number, Record<string, Record<string, Record<string, CurriculumSource[]>>>> = {};
+
+  for (const src of sources) {
+    if (!src.grade || !src.subject || !src.book_series || !src.book_title) continue;
+    const grade = src.grade;
+    const subject = src.subject;
+    const series = src.book_series;
+    const book = src.book_title;
+    if (!hierarchy[grade]) hierarchy[grade] = {};
+    if (!hierarchy[grade][subject]) hierarchy[grade][subject] = {};
+    if (!hierarchy[grade][subject][series]) hierarchy[grade][subject][series] = {};
+    if (!hierarchy[grade][subject][series][book]) hierarchy[grade][subject][series][book] = [];
+    hierarchy[grade][subject][series][book].push(src);
+  }
+
+  return hierarchy;
+}
+
 export function UploadForge() {
   const [activeTab, setActiveTab] = useState<SourceKind>("pdf");
   const [file, setFile] = useState<File | null>(null);
@@ -38,10 +58,15 @@ export function UploadForge() {
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { uploadedFileName, chunksCreated, setUpload } = useStudy();
+  const { sources, activeSourceId, addSource, setActiveSource, removeSource, curriculumSources, curriculumActive, curriculumGrade, curriculumSource, curriculumChapterNumber, setCurriculumMode, loadCurriculumSources } = useStudy();
+  const { getAccessToken, profile } = useAuth();
   const { showToast } = useToast();
 
   const activeConfig = SOURCE_TABS.find((t) => t.id === activeTab)!;
+
+  useEffect(() => {
+    loadCurriculumSources();
+  }, [loadCurriculumSources]);
 
   const switchTab = (tab: SourceKind) => {
     setActiveTab(tab);
@@ -55,6 +80,7 @@ export function UploadForge() {
   };
 
   const handleUpload = async () => {
+    const accessToken = await getAccessToken();
     setLoading(true);
     try {
       if (activeTab === "youtube") {
@@ -63,16 +89,32 @@ export function UploadForge() {
           showToast("Paste a YouTube link first.", "error");
           return;
         }
-        const result = await uploadYoutubeLink(trimmed);
-        setUpload(trimmed, result.chunks_created);
+        const result = await uploadYoutubeLink(trimmed, accessToken);
+        const source: SourceDocument = {
+          id: result.source_id,
+          name: result.source_name,
+          type: result.source_type,
+          chunks: result.chunks_created,
+          createdAt: new Date().toISOString(),
+        };
+        addSource(source);
+        setActiveSource(source.id);
         showToast(result.message || "YouTube video processed.", "success");
       } else {
         if (!file) {
           showToast(`Choose ${activeConfig.label === "PDF" ? "a" : "an"} ${activeConfig.label.toLowerCase()} file first.`, "error");
           return;
         }
-        const result = await uploadFile(file);
-        setUpload(file.name, result.chunks_created);
+        const result = await uploadFile(file, accessToken);
+        const source: SourceDocument = {
+          id: result.source_id,
+          name: result.source_name,
+          type: result.source_type,
+          chunks: result.chunks_created,
+          createdAt: new Date().toISOString(),
+        };
+        addSource(source);
+        setActiveSource(source.id);
         showToast(result.message || "Uploaded and processed.", "success");
       }
     } catch (error) {
@@ -83,11 +125,38 @@ export function UploadForge() {
     }
   };
 
+  const handleDeleteSource = async (sourceId: string) => {
+    const accessToken = await getAccessToken();
+    try {
+      await deleteSource(sourceId, accessToken);
+      removeSource(sourceId);
+      showToast("Source deleted.", "success");
+    } catch (error) {
+      console.error(error);
+      showToast("Failed to delete source.", "error");
+    }
+  };
+
+  const handleCurriculumSelect = (source: CurriculumSource, chapterNumber?: number | null) => {
+    const grade = source.grade ?? profile?.grade ?? 1;
+    setCurriculumMode(true, grade, source, chapterNumber);
+    const chapterLabel = chapterNumber ? ` Ch ${chapterNumber}` : "";
+    showToast(`Curriculum: ${source.book_title}${chapterLabel} (Grade ${grade})`, "success");
+  };
+
+  const handleCurriculumClear = () => {
+    setCurriculumMode(false);
+    showToast("Curriculum mode cleared.", "success");
+  };
+
+  const hierarchy = buildCurriculumHierarchy(curriculumSources);
+  const grades = Object.keys(hierarchy).map(Number).sort((a, b) => a - b);
+
   return (
     <Card className="p-6">
       <div className="flex items-center justify-between">
         <h2 className="font-display text-lg text-parchment-100">Feed the forge</h2>
-        {uploadedFileName && <Badge tone="ok">Material loaded</Badge>}
+        {sources.length > 0 && <Badge tone="ok">{sources.length} source{sources.length > 1 ? "s" : ""} loaded</Badge>}
       </div>
       <p className="mt-1 text-sm text-parchment-500">
         Upload a source — PDF, audio, video, a screenshot, or a YouTube link. It gets turned
@@ -159,10 +228,119 @@ export function UploadForge() {
         </div>
       )}
 
-      {uploadedFileName && (
-        <p className="mt-3 font-data text-xs text-parchment-500">
-          Last processed: {uploadedFileName} &middot; {chunksCreated ?? 0} chunks created
-        </p>
+      {sources.length > 0 && (
+        <div className="mt-4 space-y-2">
+          <p className="font-data text-xs text-parchment-500">Loaded sources:</p>
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {sources.map((source) => (
+              <div
+                key={source.id}
+                className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+                  activeSourceId === source.id
+                    ? "bg-ember-500/10 border border-ember-500"
+                    : "bg-ink-800 border border-ink-600 hover:border-ink-500"
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <span className="font-data text-xs text-parchment-400">{source.type}</span>
+                  <span className="font-medium text-parchment-100 truncate">{source.name}</span>
+                  <span className="font-data text-xs text-parchment-500">{source.chunks ?? 0} chunks</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setActiveSource(activeSourceId === source.id ? null : source.id)}
+                    className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+                      activeSourceId === source.id
+                        ? "bg-ember-500 text-ink-950"
+                        : "text-parchment-500 hover:text-parchment-100"
+                    }`}
+                  >
+                    {activeSourceId === source.id ? "Active" : "Select"}
+                  </button>
+                  <button
+                    onClick={() => handleDeleteSource(source.id)}
+                    className="rounded px-2 py-1 text-xs text-parchment-500 hover:text-err-500 transition-colors"
+                    title="Delete source"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Curriculum Browser */}
+      {curriculumSources.length > 0 && (
+        <div className="mt-6 border-t border-ink-700 pt-6">
+          <div className="flex items-center justify-between">
+            <h3 className="font-display text-base text-parchment-100">Curriculum</h3>
+            {curriculumActive && curriculumSource && (
+              <Button variant="ghost" size="sm" onClick={handleCurriculumClear}>
+                Clear curriculum
+              </Button>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-parchment-500">
+            Select a curriculum book to use with the tutor. Your uploaded sources remain active.
+          </p>
+
+          <div className="mt-4 space-y-3 max-h-60 overflow-y-auto">
+            {grades.length === 0 ? (
+              <p className="text-sm text-parchment-500">No curriculum data available.</p>
+            ) : (
+              grades.map((grade) => (
+                <div key={grade} className="space-y-2">
+                  <p className="font-data text-xs text-parchment-400">Grade {grade}</p>
+                  {Object.entries(hierarchy[grade]).map(([subject, seriesMap]) => (
+                    <div key={subject} className="ml-3 space-y-2 border-l border-ink-600 pl-3">
+                      <p className="font-data text-xs text-parchment-500">{subject}</p>
+                      {Object.entries(seriesMap).map(([series, bookMap]) => (
+                        <div key={series} className="ml-3 space-y-2 border-l border-ink-600 pl-3">
+                          <p className="font-data text-xs text-parchment-500">{series}</p>
+                          {Object.entries(bookMap).map(([bookTitle, parts]) => (
+                            <div key={bookTitle} className="ml-3 space-y-1 border-l border-ink-600 pl-3">
+                              <p className="font-medium text-xs text-parchment-300">{bookTitle}</p>
+{parts.map((part) => (
+                                <div key={part.id} className="space-y-1">
+                                  <button
+                                    onClick={() => handleCurriculumSelect(part, 0)}
+                                    className={`w-full text-left rounded px-2 py-1.5 text-xs font-medium transition-colors ${
+                                      curriculumActive && curriculumSource?.id === part.id && curriculumChapterNumber === 0
+                                        ? "bg-ember-500/10 text-ember-400 border border-ember-500"
+                                        : "text-parchment-500 hover:bg-ink-800 hover:text-parchment-100"
+                                  }`}
+                                    >
+                                      Part {part.part} {part.chapter ? `— ${part.chapter}` : ""}
+                                      {part.chapter_number && <span className="font-data text-xs text-parchment-400"> (Ch {part.chapter_number})</span>}
+                                    </button>
+                                  {part.chapter_number && Array.from({ length: part.chapter_number }, (_, i) => i + 1).map((ch) => (
+                                    <button
+                                      key={ch}
+                                      onClick={() => handleCurriculumSelect(part, ch)}
+                                      className={`w-full text-left rounded px-2 py-1 ml-4 text-xs font-medium transition-colors ${
+                                        curriculumActive && curriculumSource?.id === part.id && curriculumChapterNumber === ch
+                                          ? "bg-ember-500/10 text-ember-400 border border-ember-500"
+                                          : "text-parchment-500 hover:bg-ink-800 hover:text-parchment-100"
+                                      }`}
+                                    >
+                                      <span className="ml-2">Chapter {ch}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       )}
 
       <Button className="mt-5 w-full" onClick={handleUpload} loading={loading}>

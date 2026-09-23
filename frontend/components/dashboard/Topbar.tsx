@@ -24,12 +24,14 @@ const PAGE_TITLES: Record<string, string> = {
 };
 
 export function Topbar() {
-  const { user, logout } = useAuth();
+  const { user, profile, logout } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const title = PAGE_TITLES[pathname] ?? "Dashboard";
+
+  const displayName = profile?.display_name || user?.name;
 
   const handleLogout = () => {
     logout();
@@ -53,7 +55,7 @@ export function Topbar() {
         </div>
         <div className="flex items-center gap-3">
           {user && <Badge tone="ember">{user.plan === "forgemaster" ? "Forgemaster" : "Scholar"}</Badge>}
-          <span className="hidden text-sm text-parchment-500 sm:inline">{user?.name}</span>
+          <span className="hidden text-sm text-parchment-500 sm:inline">{displayName}</span>
           <Button variant="ghost" size="sm" onClick={handleLogout}>
             Log out
           </Button>
