@@ -9,7 +9,6 @@ bcrypt==5.0.0
 build==1.5.0
 certifi==2026.5.20
 charset-normalizer==3.4.7
-chromadb==1.5.9
 click==8.4.1
 colorama==0.4.6
 cryptography==50.0.0
