@@ -5,6 +5,9 @@ from typing import Optional, List
 from datetime import datetime
 from enum import Enum
 import uuid
+import faulthandler
+
+faulthandler.enable(all_threads=True)
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Depends
 from fastapi.middleware.cors import CORSMiddleware
