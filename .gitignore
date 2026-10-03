@@ -41,3 +41,4 @@ backend/test_search_direct.py
 # ChromaDB backup / corrupt snapshots
 backend/chroma_db_backup_*/
 backend/chroma_db_corrupt_*/
+/backend/NCERT/
