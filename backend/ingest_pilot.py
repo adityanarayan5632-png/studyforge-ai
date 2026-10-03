@@ -7,12 +7,87 @@ Run with: python ingest_pilot.py
 import fitz
 import os
 import sys
+import hashlib
+import re
 sys.path.insert(0, os.path.dirname(__file__))
 
 from pdf_processor import extract_text_from_pdf, detect_chapters
 from chunker import chunk_text, chunk_text_with_positions
 from embedder import create_embeddings
 from vector_store import store_chunks
+
+
+# Curriculum metadata mapping by prefix
+CURRICULUM_PREFIX_MAP = {
+    "aemr": {
+        "language": "en",
+        "subject": "English",
+        "book_series": "Mridang",
+        "book_title_tpl": "Mridang English Reader Class {grade} Part {part}",
+    },
+    "ahsr": {
+        "language": "hi",
+        "subject": "Social Studies",
+        "book_series": "Bharati",
+        "book_title_tpl": "Bharati Social Studies Reader Class {grade} Part {part}",
+    },
+    "bhsr": {
+        "language": "hi",
+        "subject": "Hindi",
+        "book_series": "Bharati",
+        "book_title_tpl": "Bharati Hindi Reader Class {grade} Part {part}",
+    },
+}
+
+EXCLUDED_FILES = {"ahsr114.pdf", "bhsr114.pdf"}
+
+
+def parse_curriculum_filename(filename: str) -> dict:
+    """
+    Parse a curriculum PDF filename to extract metadata.
+    
+    Patterns:
+    - {prefix}{3-digit}.pdf  -> regular (e.g., aemr101.pdf, ahsr126.pdf)
+    - {prefix}1ps.pdf       -> supplement (e.g., aemr1ps.pdf)
+    """
+    filename = os.path.basename(filename)
+    
+    # Match prefix (aemr, ahsr, bhsr)
+    match = re.match(r'^(aemr|ahsr|bhsr)(.+)\.pdf$', filename)
+    if not match:
+        raise ValueError(f"Unknown filename format: {filename}")
+    
+    prefix = match.group(1)
+    rest = match.group(2)
+    
+    is_supplement = filename.endswith("ps.pdf")
+    
+    if is_supplement:
+        # Format: {prefix}1ps.pdf (e.g., aemr1ps.pdf)
+        # Part is always 1 for supplements
+        part = 1
+        chapter_number = None
+    else:
+        # Format: {prefix}{3-digit}.pdf (e.g., aemr101.pdf)
+        # First digit = part, last 2 digits = chapter number
+        if len(rest) != 3:
+            raise ValueError(f"Unexpected filename format: {filename}")
+        part = int(rest[0])
+        chapter_number = int(rest[1:3])
+    
+    meta = CURRICULUM_PREFIX_MAP[prefix]
+    
+    return {
+        "prefix": prefix,
+        "grade": 1,
+        "subject": meta["subject"],
+        "language": meta["language"],
+        "book_series": meta["book_series"],
+        "book_title": meta["book_title_tpl"].format(grade=1, part=1),
+        "part": 1,
+        "is_supplement": is_supplement,
+        "chapter_number": None if is_supplement else int(rest[1:3]),
+    }
 
 
 def ingest_pdf(
@@ -110,36 +185,38 @@ def ingest_pdf(
 
 
 def main():
-    """Ingest the two pilot NCERT PDFs."""
+    """Ingest all eligible NCERT curriculum PDFs."""
+    
+    # Auto-discover all eligible PDFs
+    ncert_dir = "NCERT"
+    excluded_files = {"ahsr114.pdf", "bhsr114.pdf"}
+    
+    pdf_files = []
+    for fname in sorted(os.listdir("NCERT")):
+        if not fname.endswith(".pdf"):
+            continue
+        if fname in EXCLUDED_FILES:
+            print(f"  [SKIP] Excluded: {fname}")
+            continue
+        if not fname.endswith(".pdf"):
+            continue
+        
+        # Parse filename to get metadata
+        try:
+            meta = parse_curriculum_filename(f"NCERT/{fname}")
+            meta["path"] = f"NCERT/{fname}"
+            meta["is_supplement"] = fname.endswith("ps.pdf")
+            pdf_files.append(meta)
+        except Exception as e:
+            print(f"  [SKIP] Failed to parse {fname}: {e}")
+            continue
 
-    pilot_files = [
-        {
-            "path": "NCERT/bhsr101.pdf",
-            "grade": 1,
-            "subject": "Hindi",
-            "language": "hi",
-            "book_series": "Bharati",
-            "book_title": "Bharati Hindi Reader Class 1 Part 1",
-            "part": 1,
-            "is_supplement": False,
-        },
-        {
-            "path": "NCERT/aemr101.pdf",
-            "grade": 1,
-            "subject": "English",
-            "language": "en",
-            "book_series": "Mridang",
-            "book_title": "Mridang English Reader Class 1 Part 1",
-            "part": 1,
-            "is_supplement": False,
-        },
-    ]
-
-    print("=== NCERT Curriculum Pilot Ingestion ===")
-    print(f"Total PDFs to ingest: {2}")
+    print("=== NCERT Curriculum Full Ingestion ===")
+    print(f"Total PDFs to ingest: {len(pdf_files)}")
 
     results = []
-    for pdf_info in pilot_files:
+    total_chunks = 0
+    for pdf_info in pdf_files:
         try:
             source_id = ingest_pdf(
                 pdf_path=pdf_info["path"],
@@ -151,6 +228,10 @@ def main():
                 part=pdf_info["part"],
                 is_supplement=pdf_info["is_supplement"],
             )
+            total_chunks += len(chunk_text_with_positions(extract_text_from_pdf(
+                pdf_info["path"], 
+                ocr_lang="hin+eng" if pdf_info["language"] == "hi" else "eng"
+            ))[0])
             results.append({
                 "pdf": pdf_info["path"],
                 "source_id": source_id,
@@ -165,6 +246,12 @@ def main():
             })
 
     print("\n=== Ingestion Summary ===")
+    successful = [r for r in results if r["status"] == "success"]
+    failed = [r for r in results if r["status"] == "failed"]
+    print(f"PDFs processed: {len(successful)}")
+    print(f"PDFs skipped: {len(EXCLUDED_FILES)}")
+    print(f"PDFs failed: {len(failed)}")
+    print(f"Total chunks stored: {total_chunks}")
     for r in results:
         if r["status"] == "success":
             print(f"  [OK] {r['pdf']} -> {r['source_id']}")
